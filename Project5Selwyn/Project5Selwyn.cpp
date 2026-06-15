@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include "SpriteSheet.h"
+#include <allegro5/allegro_native_dialog.h>
 
 const int SCREEN_W = 800;
 const int SCREEN_H = 600;
@@ -20,7 +21,7 @@ const int MAX_BULLETS = 10;
 const int MAX_ENEMIES = 15;
 const int MAX_EXPLOSIONS = 10;
 const int MAX_POWERUPS = 5;
-const float PLAYER_SPEED = 5.0;
+const float PLAYER_SPEED = 20.0;
 const float BULLET_SPEED = 7.0;
 const int FIRE_COOLDOWN = 15;
 const int NUM_LEVELS = 3;
@@ -115,7 +116,8 @@ int main()
 	ALLEGRO_SAMPLE* explosionSound = al_load_sample("explosion.wav");
 	ALLEGRO_SAMPLE* powerupSound = al_load_sample("powerup.wav");
 	ALLEGRO_SAMPLE* musicSample = al_load_sample("music.wav");
-
+	
+	//fix the speed later -reminder
 	// explosion sprite sheet
 	SpriteSheet explosionAnim;
 	explosionAnim.init(explosionSheet, 128, 128, 9, 1);

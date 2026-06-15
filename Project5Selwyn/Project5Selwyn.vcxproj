@@ -81,7 +81,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;allegro_dialog.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>packages\Allegro.5.2.11.3\build\native\v143\win32\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Manifest>
@@ -101,7 +101,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;allegro_dialog.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>packages\Allegro.5.2.11.3\build\native\v143\win32\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Manifest>
@@ -119,7 +119,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;allegro_dialog.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>packages\Allegro.5.2.11.3\build\native\v143\win32\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Manifest>
@@ -139,7 +139,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>allegro_primitives.lib;allegro_font.lib;allegro_image.lib;allegro_audio.lib;allegro_acodec.lib;allegro_ttf.lib;allegro_dialog.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>packages\Allegro.5.2.11.3\build\native\v143\win32\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Manifest>
