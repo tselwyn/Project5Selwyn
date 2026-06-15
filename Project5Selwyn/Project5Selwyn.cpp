@@ -7,15 +7,19 @@
 #include <allegro5/allegro_font.h>
 #include <allegro5/allegro_ttf.h>
 #include <allegro5/allegro_image.h>
+#include <cmath>
+#include "SpriteSheet.h"
 
 const int SCREEN_W = 800;
 const int SCREEN_H = 600;
 const int MAX_STARS = 100;
 const int MAX_BULLETS = 10;
 const int MAX_ENEMIES = 15;
+const int MAX_EXPLOSIONS = 10;
+const int MAX_POWERUPS = 5;
 const float PLAYER_SPEED = 5.0;
 const float BULLET_SPEED = 7.0;
-const int FIRE_COOLDOWN = 15; // frames between shots
+const int FIRE_COOLDOWN = 15;
 
 enum GameState { INTRO, PLAYING, GAME_OVER, WIN };
 
@@ -33,11 +37,24 @@ struct Bullet {
 struct Enemy {
 	float x, y;
 	float speed;
+	float angle; // rotation angle
 	bool active;
-	int type; // which ship image to use
+	int type;
 };
 
-// simple rectangle collision check
+struct Explosion {
+	float x, y;
+	int frame;
+	int frameTimer;
+	bool active;
+};
+
+struct Powerup {
+	float x, y;
+	float scaleTimer; // for pulsing effect
+	bool active;
+};
+
 bool checkCollision(float x1, float y1, int w1, int h1,
 	float x2, float y2, int w2, int h2)
 {
@@ -75,13 +92,20 @@ int main()
 	ALLEGRO_BITMAP* enemyImg2 = al_load_bitmap("spaceShips_005.png");
 	ALLEGRO_BITMAP* enemyImg3 = al_load_bitmap("spaceShips_007.png");
 	ALLEGRO_BITMAP* bulletImg = al_load_bitmap("spaceMissiles_004.png");
+	ALLEGRO_BITMAP* powerupImg = al_load_bitmap("spaceParts_003.png");
+	ALLEGRO_BITMAP* explosionSheet = al_load_bitmap("explosion_sheet.png");
+
+	// sprite sheet for explosion: 9 cols x 1 row, 128x128 per frame
+	SpriteSheet explosionAnim;
+	explosionAnim.init(explosionSheet, 128, 128, 9, 1);
 
 	int playerW = al_get_bitmap_width(playerImg);
 	int playerH = al_get_bitmap_height(playerImg);
 	int bulletW = al_get_bitmap_width(bulletImg);
 	int bulletH = al_get_bitmap_height(bulletImg);
+	int powerupW = al_get_bitmap_width(powerupImg);
+	int powerupH = al_get_bitmap_height(powerupImg);
 
-	// store enemy image info in arrays for easy lookup by type
 	ALLEGRO_BITMAP* enemyImgs[3] = { enemyImg1, enemyImg2, enemyImg3 };
 	int enemyW[3] = {
 		al_get_bitmap_width(enemyImg1),
@@ -102,6 +126,7 @@ int main()
 	int fireCooldown = 0;
 	int shotsFired = 0;
 	int shotsHit = 0;
+	int hitFlash = 0; // frames to flash red when hit
 
 	// key tracking
 	bool keyUp = false, keyDown = false, keyLeft = false, keyRight = false;
@@ -117,18 +142,25 @@ int main()
 		stars[i].brightness = 100 + (rand() % 156);
 	}
 
-	// init bullets
+	// init arrays
 	Bullet bullets[MAX_BULLETS];
 	for (int i = 0; i < MAX_BULLETS; i++)
 		bullets[i].active = false;
 
-	// init enemies
 	Enemy enemies[MAX_ENEMIES];
 	for (int i = 0; i < MAX_ENEMIES; i++)
 		enemies[i].active = false;
 
+	Explosion explosions[MAX_EXPLOSIONS];
+	for (int i = 0; i < MAX_EXPLOSIONS; i++)
+		explosions[i].active = false;
+
+	Powerup powerups[MAX_POWERUPS];
+	for (int i = 0; i < MAX_POWERUPS; i++)
+		powerups[i].active = false;
+
 	int spawnTimer = 0;
-	int spawnRate = 60; // frames between enemy spawns
+	int spawnRate = 60;
 
 	GameState state = INTRO;
 	bool done = false;
@@ -170,7 +202,7 @@ int main()
 
 		if (ev.type == ALLEGRO_EVENT_TIMER)
 		{
-			// scroll stars always
+			// scroll stars
 			for (int i = 0; i < MAX_STARS; i++)
 			{
 				stars[i].y += stars[i].speed;
@@ -193,9 +225,11 @@ int main()
 				if (keyRight && playerX < SCREEN_W - playerW)
 					playerX += PLAYER_SPEED;
 
+				// hit flash countdown
+				if (hitFlash > 0) hitFlash--;
+
 				// fire bullets
 				if (fireCooldown > 0) fireCooldown--;
-
 				if (keySpace && fireCooldown == 0)
 				{
 					for (int i = 0; i < MAX_BULLETS; i++)
@@ -212,7 +246,7 @@ int main()
 					}
 				}
 
-				// move bullets upward
+				// move bullets
 				for (int i = 0; i < MAX_BULLETS; i++)
 				{
 					if (bullets[i].active)
@@ -236,25 +270,54 @@ int main()
 							enemies[i].x = rand() % (SCREEN_W - enemyW[enemies[i].type]);
 							enemies[i].y = -enemyH[enemies[i].type];
 							enemies[i].speed = 2.0 + (rand() % 3);
+							enemies[i].angle = 0.0;
 							enemies[i].active = true;
 							break;
 						}
 					}
 				}
 
-				// move enemies downward
+				// move and rotate enemies
 				for (int i = 0; i < MAX_ENEMIES; i++)
 				{
 					if (enemies[i].active)
 					{
 						enemies[i].y += enemies[i].speed;
-						// deactivate if they go off screen
+						enemies[i].angle += 0.03; // slow rotation
 						if (enemies[i].y > SCREEN_H)
 							enemies[i].active = false;
 					}
 				}
 
-				// check bullet-enemy collisions
+				// update explosions
+				for (int i = 0; i < MAX_EXPLOSIONS; i++)
+				{
+					if (explosions[i].active)
+					{
+						explosions[i].frameTimer++;
+						if (explosions[i].frameTimer >= 4) // advance frame every 4 ticks
+						{
+							explosions[i].frameTimer = 0;
+							explosions[i].frame++;
+							if (explosions[i].frame >= 9)
+								explosions[i].active = false;
+						}
+					}
+				}
+
+				// move powerups down and update pulse
+				for (int i = 0; i < MAX_POWERUPS; i++)
+				{
+					if (powerups[i].active)
+					{
+						powerups[i].y += 2.0;
+						powerups[i].scaleTimer += 0.08;
+						if (powerups[i].y > SCREEN_H)
+							powerups[i].active = false;
+					}
+				}
+
+				// bullet-enemy collisions
 				for (int i = 0; i < MAX_BULLETS; i++)
 				{
 					if (!bullets[i].active) continue;
@@ -265,6 +328,36 @@ int main()
 						if (checkCollision(bullets[i].x, bullets[i].y, bulletW, bulletH,
 							enemies[j].x, enemies[j].y, enemyW[et], enemyH[et]))
 						{
+							// spawn explosion at enemy position
+							for (int k = 0; k < MAX_EXPLOSIONS; k++)
+							{
+								if (!explosions[k].active)
+								{
+									explosions[k].x = enemies[j].x + enemyW[et] / 2 - 64;
+									explosions[k].y = enemies[j].y + enemyH[et] / 2 - 64;
+									explosions[k].frame = 0;
+									explosions[k].frameTimer = 0;
+									explosions[k].active = true;
+									break;
+								}
+							}
+
+							// 20% chance to drop a powerup
+							if (rand() % 5 == 0)
+							{
+								for (int k = 0; k < MAX_POWERUPS; k++)
+								{
+									if (!powerups[k].active)
+									{
+										powerups[k].x = enemies[j].x + enemyW[et] / 2 - powerupW / 2;
+										powerups[k].y = enemies[j].y;
+										powerups[k].scaleTimer = 0.0;
+										powerups[k].active = true;
+										break;
+									}
+								}
+							}
+
 							bullets[i].active = false;
 							enemies[j].active = false;
 							score += 100;
@@ -274,7 +367,7 @@ int main()
 					}
 				}
 
-				// check enemy-player collisions
+				// enemy-player collisions
 				for (int i = 0; i < MAX_ENEMIES; i++)
 				{
 					if (!enemies[i].active) continue;
@@ -284,8 +377,23 @@ int main()
 					{
 						enemies[i].active = false;
 						lives--;
+						hitFlash = 30; // flash red for 30 frames
 						if (lives <= 0)
 							state = GAME_OVER;
+					}
+				}
+
+				// powerup-player collisions
+				for (int i = 0; i < MAX_POWERUPS; i++)
+				{
+					if (!powerups[i].active) continue;
+					// use powerup base size for collision
+					if (checkCollision(playerX, playerY, playerW, playerH,
+						powerups[i].x, powerups[i].y, powerupW, powerupH))
+					{
+						powerups[i].active = false;
+						lives++; // extra life
+						score += 250;
 					}
 				}
 			}
@@ -298,7 +406,7 @@ int main()
 			redraw = false;
 			al_clear_to_color(al_map_rgb(0, 0, 0));
 
-			// stars on every screen
+			// stars
 			for (int i = 0; i < MAX_STARS; i++)
 			{
 				al_draw_filled_circle(stars[i].x, stars[i].y, 1,
@@ -331,16 +439,53 @@ int main()
 						al_draw_bitmap(bulletImg, bullets[i].x, bullets[i].y, 0);
 				}
 
-				// draw enemies
+				// draw enemies with rotation
 				for (int i = 0; i < MAX_ENEMIES; i++)
 				{
 					if (enemies[i].active)
-						al_draw_bitmap(enemyImgs[enemies[i].type],
-							enemies[i].x, enemies[i].y, 0);
+					{
+						int et = enemies[i].type;
+						float cx = enemyW[et] / 2.0;
+						float cy = enemyH[et] / 2.0;
+						al_draw_rotated_bitmap(enemyImgs[et],
+							cx, cy,
+							enemies[i].x + cx, enemies[i].y + cy,
+							enemies[i].angle, 0);
+					}
 				}
 
-				// draw player
-				al_draw_bitmap(playerImg, playerX, playerY, 0);
+				// draw explosions using sprite sheet
+				for (int i = 0; i < MAX_EXPLOSIONS; i++)
+				{
+					if (explosions[i].active)
+						explosionAnim.drawFrame(explosions[i].frame, 0,
+							explosions[i].x, explosions[i].y);
+				}
+
+				// draw powerups with pulsing scale
+				for (int i = 0; i < MAX_POWERUPS; i++)
+				{
+					if (powerups[i].active)
+					{
+						float scale = 1.0 + 0.3 * sin(powerups[i].scaleTimer);
+						float scaledW = powerupW * scale;
+						float scaledH = powerupH * scale;
+						// center the scaled image
+						float drawX = powerups[i].x + powerupW / 2 - scaledW / 2;
+						float drawY = powerups[i].y + powerupH / 2 - scaledH / 2;
+						al_draw_scaled_bitmap(powerupImg,
+							0, 0, powerupW, powerupH,
+							drawX, drawY, scaledW, scaledH, 0);
+					}
+				}
+
+				// draw player - flash red when hit
+				if (hitFlash > 0)
+					al_draw_tinted_bitmap(playerImg,
+						al_map_rgb(255, 100, 100),
+						playerX, playerY, 0);
+				else
+					al_draw_bitmap(playerImg, playerX, playerY, 0);
 			}
 			else if (state == GAME_OVER)
 			{
@@ -362,6 +507,8 @@ int main()
 	al_destroy_bitmap(enemyImg2);
 	al_destroy_bitmap(enemyImg3);
 	al_destroy_bitmap(bulletImg);
+	al_destroy_bitmap(powerupImg);
+	al_destroy_bitmap(explosionSheet);
 	al_destroy_font(fontLarge);
 	al_destroy_font(fontMed);
 	al_destroy_font(fontSmall);
