@@ -22,8 +22,9 @@ const int MAX_POWERUPS = 5;
 const float PLAYER_SPEED = 5.0;
 const float BULLET_SPEED = 7.0;
 const int FIRE_COOLDOWN = 15;
+const int NUM_LEVELS = 3;
 
-enum GameState { INTRO, PLAYING, GAME_OVER, WIN };
+enum GameState { INTRO, PLAYING, LEVEL_TRANS, GAME_OVER, WIN };
 
 struct Star {
 	float x, y;
@@ -55,6 +56,14 @@ struct Powerup {
 	float x, y;
 	float scaleTimer;
 	bool active;
+};
+
+// level config - spawn rate, base enemy speed, speed range, kills to advance
+struct LevelConfig {
+	int spawnRate;
+	float baseSpeed;
+	int speedRange;
+	int killsNeeded;
 };
 
 bool checkCollision(float x1, float y1, int w1, int h1,
@@ -129,6 +138,13 @@ int main()
 		al_get_bitmap_height(enemyImg3)
 	};
 
+	// level configs: each level gets harder
+	LevelConfig levels[NUM_LEVELS] = {
+		{ 60, 2.0, 3, 8 },   // level 1: slow spawns, slow enemies, 8 kills
+		{ 40, 3.0, 3, 12 },  // level 2: faster spawns, faster enemies, 12 kills
+		{ 25, 4.0, 4, 15 }   // level 3: fast spawns, fast enemies, 15 kills
+	};
+
 	// player state
 	float playerX = SCREEN_W / 2 - playerW / 2;
 	float playerY = SCREEN_H - playerH - 20;
@@ -138,8 +154,11 @@ int main()
 	int shotsFired = 0;
 	int shotsHit = 0;
 	int hitFlash = 0;
-	int level = 1;
-	int gameFrames = 0; // track elapsed time
+	int level = 0; // index into levels array (0-2)
+	int killsThisLevel = 0;
+	int totalKills = 0;
+	int gameFrames = 0;
+	int transTimer = 0; // countdown for level transition screen
 
 	bool keyUp = false, keyDown = false, keyLeft = false, keyRight = false;
 	bool keySpace = false;
@@ -171,9 +190,7 @@ int main()
 		powerups[i].active = false;
 
 	int spawnTimer = 0;
-	int spawnRate = 60;
 	bool musicPlaying = false;
-
 	ALLEGRO_SAMPLE_ID musicID;
 
 	GameState state = INTRO;
@@ -197,12 +214,41 @@ int main()
 
 			if (state == INTRO && ev.keyboard.keycode == ALLEGRO_KEY_ENTER)
 			{
-				state = PLAYING;
-				// start background music loop
-				al_play_sample(musicSample, 0.5, 0.0, 1.0,
-					ALLEGRO_PLAYMODE_LOOP, &musicID);
-				musicPlaying = true;
+				// reset everything for a new game
+				level = 0;
+				killsThisLevel = 0;
+				totalKills = 0;
+				score = 0;
+				lives = 3;
+				shotsFired = 0;
+				shotsHit = 0;
+				gameFrames = 0;
+				hitFlash = 0;
+				fireCooldown = 0;
+				spawnTimer = 0;
+				playerX = SCREEN_W / 2 - playerW / 2;
+				playerY = SCREEN_H - playerH - 20;
+
+				for (int i = 0; i < MAX_BULLETS; i++) bullets[i].active = false;
+				for (int i = 0; i < MAX_ENEMIES; i++) enemies[i].active = false;
+				for (int i = 0; i < MAX_EXPLOSIONS; i++) explosions[i].active = false;
+				for (int i = 0; i < MAX_POWERUPS; i++) powerups[i].active = false;
+
+				// show level 1 announcement first
+				state = LEVEL_TRANS;
+				transTimer = 120; // 2 seconds
+
+				if (!musicPlaying)
+				{
+					al_play_sample(musicSample, 0.5, 0.0, 1.0,
+						ALLEGRO_PLAYMODE_LOOP, &musicID);
+					musicPlaying = true;
+				}
 			}
+
+			// restart from end screens
+			if ((state == GAME_OVER || state == WIN) && ev.keyboard.keycode == ALLEGRO_KEY_ENTER)
+				state = INTRO;
 
 			if (ev.keyboard.keycode == ALLEGRO_KEY_UP) keyUp = true;
 			if (ev.keyboard.keycode == ALLEGRO_KEY_DOWN) keyDown = true;
@@ -222,7 +268,7 @@ int main()
 
 		if (ev.type == ALLEGRO_EVENT_TIMER)
 		{
-			// scroll stars
+			// scroll stars always
 			for (int i = 0; i < MAX_STARS; i++)
 			{
 				stars[i].y += stars[i].speed;
@@ -231,6 +277,14 @@ int main()
 					stars[i].y = 0;
 					stars[i].x = rand() % SCREEN_W;
 				}
+			}
+
+			// level transition countdown
+			if (state == LEVEL_TRANS)
+			{
+				transTimer--;
+				if (transTimer <= 0)
+					state = PLAYING;
 			}
 
 			if (state == PLAYING)
@@ -280,9 +334,9 @@ int main()
 					}
 				}
 
-				// spawn enemies
+				// spawn enemies using current level config
 				spawnTimer++;
-				if (spawnTimer >= spawnRate)
+				if (spawnTimer >= levels[level].spawnRate)
 				{
 					spawnTimer = 0;
 					for (int i = 0; i < MAX_ENEMIES; i++)
@@ -292,7 +346,7 @@ int main()
 							enemies[i].type = rand() % 3;
 							enemies[i].x = rand() % (SCREEN_W - enemyW[enemies[i].type]);
 							enemies[i].y = -enemyH[enemies[i].type];
-							enemies[i].speed = 2.0 + (rand() % 3);
+							enemies[i].speed = levels[level].baseSpeed + (rand() % levels[level].speedRange);
 							enemies[i].angle = 0.0;
 							enemies[i].active = true;
 							break;
@@ -351,6 +405,7 @@ int main()
 						if (checkCollision(bullets[i].x, bullets[i].y, bulletW, bulletH,
 							enemies[j].x, enemies[j].y, enemyW[et], enemyH[et]))
 						{
+							// explosion
 							for (int k = 0; k < MAX_EXPLOSIONS; k++)
 							{
 								if (!explosions[k].active)
@@ -364,10 +419,10 @@ int main()
 								}
 							}
 
-							// play explosion sound
 							al_play_sample(explosionSound, 0.5, 0.0, 1.0,
 								ALLEGRO_PLAYMODE_ONCE, NULL);
 
+							// chance to drop powerup
 							if (rand() % 5 == 0)
 							{
 								for (int k = 0; k < MAX_POWERUPS; k++)
@@ -387,6 +442,38 @@ int main()
 							enemies[j].active = false;
 							score += 100;
 							shotsHit++;
+							totalKills++;
+							killsThisLevel++;
+
+							// check if level is complete
+							if (killsThisLevel >= levels[level].killsNeeded)
+							{
+								killsThisLevel = 0;
+								level++;
+
+								// clear active enemies for clean transition
+								for (int e = 0; e < MAX_ENEMIES; e++)
+									enemies[e].active = false;
+
+								if (level >= NUM_LEVELS)
+								{
+									// beat all 3 levels
+									state = WIN;
+									if (musicPlaying)
+									{
+										al_stop_sample(&musicID);
+										musicPlaying = false;
+									}
+								}
+								else
+								{
+									// show next level announcement
+									state = LEVEL_TRANS;
+									transTimer = 120;
+									spawnTimer = 0;
+								}
+							}
+
 							break;
 						}
 					}
@@ -408,7 +495,6 @@ int main()
 						if (lives <= 0)
 						{
 							state = GAME_OVER;
-							// stop music on game over
 							if (musicPlaying)
 							{
 								al_stop_sample(&musicID);
@@ -442,7 +528,7 @@ int main()
 			redraw = false;
 			al_clear_to_color(al_map_rgb(0, 0, 0));
 
-			// stars
+			// stars on every screen
 			for (int i = 0; i < MAX_STARS; i++)
 			{
 				al_draw_filled_circle(stars[i].x, stars[i].y, 1,
@@ -465,6 +551,16 @@ int main()
 					SCREEN_W / 2, 480, ALLEGRO_ALIGN_CENTER, "Press ENTER to Start");
 				al_draw_text(fontSmall, al_map_rgb(100, 100, 100),
 					SCREEN_W / 2, 560, ALLEGRO_ALIGN_CENTER, "Tyler Selwyn - CPSC 440");
+			}
+			else if (state == LEVEL_TRANS)
+			{
+				// level announcement screen
+				char buf[32];
+				sprintf_s(buf, "LEVEL %d", level + 1);
+				al_draw_text(fontLarge, al_map_rgb(100, 255, 100),
+					SCREEN_W / 2, 220, ALLEGRO_ALIGN_CENTER, buf);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 310, ALLEGRO_ALIGN_CENTER, "Get Ready!");
 			}
 			else if (state == PLAYING)
 			{
@@ -522,7 +618,7 @@ int main()
 				else
 					al_draw_bitmap(playerImg, playerX, playerY, 0);
 
-				// status bar at the top
+				// status bar
 				al_draw_filled_rectangle(0, 0, SCREEN_W, 35, al_map_rgba(0, 0, 0, 200));
 				al_draw_line(0, 35, SCREEN_W, 35, al_map_rgb(100, 100, 255), 2);
 
@@ -535,7 +631,7 @@ int main()
 				al_draw_text(fontSmall, al_map_rgb(255, 100, 100),
 					250, 8, 0, buf);
 
-				sprintf_s(buf, "Level: %d", level);
+				sprintf_s(buf, "Level: %d", level + 1);
 				al_draw_text(fontSmall, al_map_rgb(100, 255, 100),
 					450, 8, 0, buf);
 
@@ -549,12 +645,70 @@ int main()
 			else if (state == GAME_OVER)
 			{
 				al_draw_text(fontLarge, al_map_rgb(255, 0, 0),
-					SCREEN_W / 2, 200, ALLEGRO_ALIGN_CENTER, "GAME OVER");
+					SCREEN_W / 2, 100, ALLEGRO_ALIGN_CENTER, "GAME OVER");
+
+				// game stats
+				char buf[64];
+
+				sprintf_s(buf, "Final Score: %d", score);
+				al_draw_text(fontMed, al_map_rgb(255, 255, 255),
+					SCREEN_W / 2, 200, ALLEGRO_ALIGN_CENTER, buf);
+
+				sprintf_s(buf, "Enemies Destroyed: %d", totalKills);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 260, ALLEGRO_ALIGN_CENTER, buf);
+
+				int accuracy = (shotsFired > 0) ? (shotsHit * 100 / shotsFired) : 0;
+				sprintf_s(buf, "Accuracy: %d%%", accuracy);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 300, ALLEGRO_ALIGN_CENTER, buf);
+
+				int seconds = gameFrames / 60;
+				int mins = seconds / 60;
+				int secs = seconds % 60;
+				sprintf_s(buf, "Time Survived: %d:%02d", mins, secs);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 340, ALLEGRO_ALIGN_CENTER, buf);
+
+				sprintf_s(buf, "Reached Level: %d", level + 1);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 380, ALLEGRO_ALIGN_CENTER, buf);
+
+				al_draw_text(fontSmall, al_map_rgb(255, 255, 0),
+					SCREEN_W / 2, 460, ALLEGRO_ALIGN_CENTER, "Press ENTER to Play Again");
+			}
+			else if (state == WIN)
+			{
+				al_draw_text(fontLarge, al_map_rgb(0, 255, 0),
+					SCREEN_W / 2, 100, ALLEGRO_ALIGN_CENTER, "YOU WIN!");
 
 				char buf[64];
-				sprintf_s(buf, "Score: %d", score);
+
+				sprintf_s(buf, "Final Score: %d", score);
 				al_draw_text(fontMed, al_map_rgb(255, 255, 255),
-					SCREEN_W / 2, 320, ALLEGRO_ALIGN_CENTER, buf);
+					SCREEN_W / 2, 200, ALLEGRO_ALIGN_CENTER, buf);
+
+				sprintf_s(buf, "Enemies Destroyed: %d", totalKills);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 260, ALLEGRO_ALIGN_CENTER, buf);
+
+				int accuracy = (shotsFired > 0) ? (shotsHit * 100 / shotsFired) : 0;
+				sprintf_s(buf, "Accuracy: %d%%", accuracy);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 300, ALLEGRO_ALIGN_CENTER, buf);
+
+				int seconds = gameFrames / 60;
+				int mins = seconds / 60;
+				int secs = seconds % 60;
+				sprintf_s(buf, "Total Time: %d:%02d", mins, secs);
+				al_draw_text(fontSmall, al_map_rgb(200, 200, 200),
+					SCREEN_W / 2, 340, ALLEGRO_ALIGN_CENTER, buf);
+
+				al_draw_text(fontSmall, al_map_rgb(100, 255, 100),
+					SCREEN_W / 2, 380, ALLEGRO_ALIGN_CENTER, "All 3 Levels Cleared!");
+
+				al_draw_text(fontSmall, al_map_rgb(255, 255, 0),
+					SCREEN_W / 2, 460, ALLEGRO_ALIGN_CENTER, "Press ENTER to Play Again");
 			}
 
 			al_flip_display();
