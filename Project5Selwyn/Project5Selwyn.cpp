@@ -7,6 +7,8 @@
 #include <allegro5/allegro_font.h>
 #include <allegro5/allegro_ttf.h>
 #include <allegro5/allegro_image.h>
+#include <allegro5/allegro_audio.h>
+#include <allegro5/allegro_acodec.h>
 #include <cmath>
 #include "SpriteSheet.h"
 
@@ -37,7 +39,7 @@ struct Bullet {
 struct Enemy {
 	float x, y;
 	float speed;
-	float angle; // rotation angle
+	float angle;
 	bool active;
 	int type;
 };
@@ -51,7 +53,7 @@ struct Explosion {
 
 struct Powerup {
 	float x, y;
-	float scaleTimer; // for pulsing effect
+	float scaleTimer;
 	bool active;
 };
 
@@ -70,6 +72,9 @@ int main()
 	al_init_font_addon();
 	al_init_ttf_addon();
 	al_init_image_addon();
+	al_install_audio();
+	al_init_acodec_addon();
+	al_reserve_samples(10);
 
 	ALLEGRO_DISPLAY* display = al_create_display(SCREEN_W, SCREEN_H);
 	al_set_window_title(display, "Space Shooter - Tyler Selwyn");
@@ -95,7 +100,13 @@ int main()
 	ALLEGRO_BITMAP* powerupImg = al_load_bitmap("spaceParts_003.png");
 	ALLEGRO_BITMAP* explosionSheet = al_load_bitmap("explosion_sheet.png");
 
-	// sprite sheet for explosion: 9 cols x 1 row, 128x128 per frame
+	// load sounds
+	ALLEGRO_SAMPLE* laserSound = al_load_sample("laser.wav");
+	ALLEGRO_SAMPLE* explosionSound = al_load_sample("explosion.wav");
+	ALLEGRO_SAMPLE* powerupSound = al_load_sample("powerup.wav");
+	ALLEGRO_SAMPLE* musicSample = al_load_sample("music.wav");
+
+	// explosion sprite sheet
 	SpriteSheet explosionAnim;
 	explosionAnim.init(explosionSheet, 128, 128, 9, 1);
 
@@ -126,9 +137,10 @@ int main()
 	int fireCooldown = 0;
 	int shotsFired = 0;
 	int shotsHit = 0;
-	int hitFlash = 0; // frames to flash red when hit
+	int hitFlash = 0;
+	int level = 1;
+	int gameFrames = 0; // track elapsed time
 
-	// key tracking
 	bool keyUp = false, keyDown = false, keyLeft = false, keyRight = false;
 	bool keySpace = false;
 
@@ -142,7 +154,6 @@ int main()
 		stars[i].brightness = 100 + (rand() % 156);
 	}
 
-	// init arrays
 	Bullet bullets[MAX_BULLETS];
 	for (int i = 0; i < MAX_BULLETS; i++)
 		bullets[i].active = false;
@@ -161,6 +172,9 @@ int main()
 
 	int spawnTimer = 0;
 	int spawnRate = 60;
+	bool musicPlaying = false;
+
+	ALLEGRO_SAMPLE_ID musicID;
 
 	GameState state = INTRO;
 	bool done = false;
@@ -182,7 +196,13 @@ int main()
 				done = true;
 
 			if (state == INTRO && ev.keyboard.keycode == ALLEGRO_KEY_ENTER)
+			{
 				state = PLAYING;
+				// start background music loop
+				al_play_sample(musicSample, 0.5, 0.0, 1.0,
+					ALLEGRO_PLAYMODE_LOOP, &musicID);
+				musicPlaying = true;
+			}
 
 			if (ev.keyboard.keycode == ALLEGRO_KEY_UP) keyUp = true;
 			if (ev.keyboard.keycode == ALLEGRO_KEY_DOWN) keyDown = true;
@@ -215,6 +235,8 @@ int main()
 
 			if (state == PLAYING)
 			{
+				gameFrames++;
+
 				// move player
 				if (keyUp && playerY > 40)
 					playerY -= PLAYER_SPEED;
@@ -225,7 +247,6 @@ int main()
 				if (keyRight && playerX < SCREEN_W - playerW)
 					playerX += PLAYER_SPEED;
 
-				// hit flash countdown
 				if (hitFlash > 0) hitFlash--;
 
 				// fire bullets
@@ -241,6 +262,8 @@ int main()
 							bullets[i].active = true;
 							shotsFired++;
 							fireCooldown = FIRE_COOLDOWN;
+							al_play_sample(laserSound, 0.4, 0.0, 1.0,
+								ALLEGRO_PLAYMODE_ONCE, NULL);
 							break;
 						}
 					}
@@ -283,7 +306,7 @@ int main()
 					if (enemies[i].active)
 					{
 						enemies[i].y += enemies[i].speed;
-						enemies[i].angle += 0.03; // slow rotation
+						enemies[i].angle += 0.03;
 						if (enemies[i].y > SCREEN_H)
 							enemies[i].active = false;
 					}
@@ -295,7 +318,7 @@ int main()
 					if (explosions[i].active)
 					{
 						explosions[i].frameTimer++;
-						if (explosions[i].frameTimer >= 4) // advance frame every 4 ticks
+						if (explosions[i].frameTimer >= 4)
 						{
 							explosions[i].frameTimer = 0;
 							explosions[i].frame++;
@@ -305,7 +328,7 @@ int main()
 					}
 				}
 
-				// move powerups down and update pulse
+				// move powerups
 				for (int i = 0; i < MAX_POWERUPS; i++)
 				{
 					if (powerups[i].active)
@@ -328,7 +351,6 @@ int main()
 						if (checkCollision(bullets[i].x, bullets[i].y, bulletW, bulletH,
 							enemies[j].x, enemies[j].y, enemyW[et], enemyH[et]))
 						{
-							// spawn explosion at enemy position
 							for (int k = 0; k < MAX_EXPLOSIONS; k++)
 							{
 								if (!explosions[k].active)
@@ -342,7 +364,10 @@ int main()
 								}
 							}
 
-							// 20% chance to drop a powerup
+							// play explosion sound
+							al_play_sample(explosionSound, 0.5, 0.0, 1.0,
+								ALLEGRO_PLAYMODE_ONCE, NULL);
+
 							if (rand() % 5 == 0)
 							{
 								for (int k = 0; k < MAX_POWERUPS; k++)
@@ -377,9 +402,19 @@ int main()
 					{
 						enemies[i].active = false;
 						lives--;
-						hitFlash = 30; // flash red for 30 frames
+						hitFlash = 30;
+						al_play_sample(explosionSound, 0.6, 0.0, 1.0,
+							ALLEGRO_PLAYMODE_ONCE, NULL);
 						if (lives <= 0)
+						{
 							state = GAME_OVER;
+							// stop music on game over
+							if (musicPlaying)
+							{
+								al_stop_sample(&musicID);
+								musicPlaying = false;
+							}
+						}
 					}
 				}
 
@@ -387,13 +422,14 @@ int main()
 				for (int i = 0; i < MAX_POWERUPS; i++)
 				{
 					if (!powerups[i].active) continue;
-					// use powerup base size for collision
 					if (checkCollision(playerX, playerY, playerW, playerH,
 						powerups[i].x, powerups[i].y, powerupW, powerupH))
 					{
 						powerups[i].active = false;
-						lives++; // extra life
+						lives++;
 						score += 250;
+						al_play_sample(powerupSound, 0.6, 0.0, 1.0,
+							ALLEGRO_PLAYMODE_ONCE, NULL);
 					}
 				}
 			}
@@ -454,7 +490,7 @@ int main()
 					}
 				}
 
-				// draw explosions using sprite sheet
+				// draw explosions
 				for (int i = 0; i < MAX_EXPLOSIONS; i++)
 				{
 					if (explosions[i].active)
@@ -470,7 +506,6 @@ int main()
 						float scale = 1.0 + 0.3 * sin(powerups[i].scaleTimer);
 						float scaledW = powerupW * scale;
 						float scaledH = powerupH * scale;
-						// center the scaled image
 						float drawX = powerups[i].x + powerupW / 2 - scaledW / 2;
 						float drawY = powerups[i].y + powerupH / 2 - scaledH / 2;
 						al_draw_scaled_bitmap(powerupImg,
@@ -479,13 +514,37 @@ int main()
 					}
 				}
 
-				// draw player - flash red when hit
+				// draw player
 				if (hitFlash > 0)
 					al_draw_tinted_bitmap(playerImg,
 						al_map_rgb(255, 100, 100),
 						playerX, playerY, 0);
 				else
 					al_draw_bitmap(playerImg, playerX, playerY, 0);
+
+				// status bar at the top
+				al_draw_filled_rectangle(0, 0, SCREEN_W, 35, al_map_rgba(0, 0, 0, 200));
+				al_draw_line(0, 35, SCREEN_W, 35, al_map_rgb(100, 100, 255), 2);
+
+				char buf[64];
+				sprintf_s(buf, "Score: %d", score);
+				al_draw_text(fontSmall, al_map_rgb(255, 255, 255),
+					10, 8, 0, buf);
+
+				sprintf_s(buf, "Lives: %d", lives);
+				al_draw_text(fontSmall, al_map_rgb(255, 100, 100),
+					250, 8, 0, buf);
+
+				sprintf_s(buf, "Level: %d", level);
+				al_draw_text(fontSmall, al_map_rgb(100, 255, 100),
+					450, 8, 0, buf);
+
+				int seconds = gameFrames / 60;
+				int mins = seconds / 60;
+				int secs = seconds % 60;
+				sprintf_s(buf, "Time: %d:%02d", mins, secs);
+				al_draw_text(fontSmall, al_map_rgb(255, 255, 0),
+					630, 8, 0, buf);
 			}
 			else if (state == GAME_OVER)
 			{
@@ -502,6 +561,11 @@ int main()
 		}
 	}
 
+	if (musicPlaying) al_stop_sample(&musicID);
+	al_destroy_sample(laserSound);
+	al_destroy_sample(explosionSound);
+	al_destroy_sample(powerupSound);
+	al_destroy_sample(musicSample);
 	al_destroy_bitmap(playerImg);
 	al_destroy_bitmap(enemyImg1);
 	al_destroy_bitmap(enemyImg2);
