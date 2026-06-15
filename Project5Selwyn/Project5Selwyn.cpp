@@ -10,6 +10,7 @@
 #include <allegro5/allegro_audio.h>
 #include <allegro5/allegro_acodec.h>
 #include <cmath>
+#include <cstdio>
 #include "SpriteSheet.h"
 
 const int SCREEN_W = 800;
