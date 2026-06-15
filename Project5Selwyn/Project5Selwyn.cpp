@@ -52,7 +52,7 @@ int main()
 	int playerH = al_get_bitmap_height(playerImg);
 
 	// player position - start at bottom center
-	float playerX = SCREEN_W / 2 - playerW / 2;
+	 float playerX = SCREEN_W / 2 - playerW / 2;
 	float playerY = SCREEN_H - playerH - 20;
 
 	// key tracking for smooth movement
